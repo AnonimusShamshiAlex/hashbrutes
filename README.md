@@ -247,9 +247,8 @@ If this tool helped you, please star the repository!
 
 ## 🔗 Links
 
-- [GitHub Repository](https://github.com/yourusername/hashbrute)
-- [Report Issues](https://github.com/yourusername/hashbrute/issues)
-- [Discussions](https://github.com/yourusername/hashbrute/discussions)
+- [Blog](https://drtoolparadox.base44.app/blog)
+
 
 ---
 
