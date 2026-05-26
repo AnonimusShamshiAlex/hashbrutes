@@ -274,45 +274,6 @@ If this tool helped you, please star the repository!
 ======================================================================
 ```
 
-**Try it once. You'll never go back.** 🚀
-```
-
-## Файл `.gitignore`:
-
-```
-# Virtual Environment
-venv/
-env/
-ENV/
-.venv/
-
-# Python
-__pycache__/
-*.py[cod]
-*.so
-.Python
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Temporary files
-test_extract/
-*.tmp
-*.log
-
-# Wordlists (optional - comment if you want to include)
-# passwords.txt
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Old versions (optional - include if you want to keep)
-# hashbrute_beta*.py is kept in Versions/ folder
-```
 
 ## Файл `requirements.txt`:
 
