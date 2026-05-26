@@ -86,7 +86,6 @@ chmod +x install.sh
 
 ### Method 1: Enter Hash Directly
 ```bash
-(venv) ┌───$ python hashbrute.py
 
 [1] Enter hash manually
 Hash: 5f4dcc3b5aa765d61d8327deb882cf99
