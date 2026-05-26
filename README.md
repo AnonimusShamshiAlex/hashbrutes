@@ -7,9 +7,6 @@
 
 ---
 
-## 📦 Repository Structure
-
-
 ---
 
 ## ⚡ SPEED BREAKTHROUGH
