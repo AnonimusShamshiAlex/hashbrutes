@@ -9,31 +9,6 @@
 
 ## 📦 Repository Structure
 
-```
-hashbrute/
-│
-├── hashbrute.py          ← MAIN PROGRAM (use this!)
-├── rarpassbrute.py       ← Standalone RAR cracker
-├── zipaudit.py           ← ZIP file auditor
-│
-├── Versions/
-│   ├── hashbrute_beta9v.py   ← Latest stable
-│   ├── hashbrute_beta7v.py   ← With RAR support
-│   ├── hashbrute_beta6v.py   ← With ZIP support
-│   ├── hashbrute_beta5v.py   ← With Office support
-│   ├── hashbrute_beta3v.py   ← Basic version
-│   └── hashbrute_beta2v.py   ├── Legacy versions
-│   └── hashbrute.py           └── (all work!)
-│
-├── passwords.txt         ← Your wordlist (auto-created)
-├── requirements.txt      ← Python dependencies
-├── install.sh           ← One-click installer
-├── .gitignore           ← Git ignore file
-│
-├── test_extract/        ← Temporary extraction folder
-│
-└── venv/                ← Virtual environment
-```
 
 ---
 
