@@ -47,7 +47,7 @@ pip install -r requirements.txt
 
 ### 4. Run the Program
 ```bash
-python hashbrute_beta9v.py or python hashbrute_beta(n)v.py
+python hashbrute_beta9v.py #or python hashbrute_beta(n)v.py
 ```
 
 ### One-Click Install (Linux/Mac)
