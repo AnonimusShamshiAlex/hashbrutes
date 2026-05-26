@@ -586,7 +586,7 @@ seq 1000 9999 > pins.txt
 
 ### Example 1: Crack ZIP file
 ```bash
-$ python hashbrute.py
+$ python hashbrute_beta9v.py
 
 [3] Enter filename
 File: secret.zip
@@ -608,7 +608,7 @@ Wordlist: rockyou.txt
 
 ### Example 2: Crack RAR file
 ```bash
-$ python hashbrute.py
+$ python hashbrute_beat9v.py #or rarpassbrute.py 
 
 [3] Enter filename
 File: archive.rar
@@ -628,7 +628,7 @@ Wordlist: passwords.txt
 
 ### Example 3: Crack Office hash
 ```bash
-$ python hashbrute.py
+$ python hashbrute_beta9v.py #or python hashbrute_beta(n).py
 
 [1] Enter hash manually
 Hash: $office$*2013*100000*256*16*59496a84...
