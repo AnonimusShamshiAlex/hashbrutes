@@ -50,6 +50,7 @@ python hashbrute_beta9v.py #or python hashbrute_beta(n)v.py
 ### One-Click Install (Linux/Mac)
 ```bash
 chmod +x install.sh
+sed -i 's/\r$//' install.sh
 ./install.sh
 ```
 
