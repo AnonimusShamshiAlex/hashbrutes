@@ -1,0 +1,441 @@
+import bcrypt
+import hashlib
+import binascii
+import re
+import os
+import zipfile
+import subprocess
+from typing import Tuple
+
+# ========== ПРАВИЛЬНОЕ ОПРЕДЕЛЕНИЕ ТИПА ХЭША ==========
+def detect_hash_type(hash_str: str) -> Tuple[str, dict]:
+    """Правильно определяет тип хэша"""
+    hash_clean = hash_str.strip()
+    
+    # Удаляем префикс с именем файла
+    if ':' in hash_clean and not hash_clean.startswith('$'):
+        parts = hash_clean.split(':', 1)
+        if len(parts) == 2:
+            hash_clean = parts[1]
+    
+    hash_lower = hash_clean.lower()
+    length = len(hash_lower)
+    
+    # bcrypt
+    if hash_lower.startswith('$2a$') or hash_lower.startswith('$2b$') or hash_lower.startswith('$2y$'):
+        return ("bcrypt", {"full": hash_clean})
+    
+    # MS Office
+    if '$office$' in hash_lower:
+        match = re.match(r'\$office\$\*(\d+)\*(\d+)\*256\*16\*([a-f0-9]+)\*([a-f0-9]+)\*([a-f0-9]+)', hash_lower)
+        if match:
+            return ("office", {
+                "version": match.group(1),
+                "iterations": int(match.group(2)),
+                "salt": match.group(3),
+                "hash": match.group(4)
+            })
+    
+    # CRC16 (4 символа hex)
+    if length == 4 and re.match(r'^[a-f0-9]{4}$', hash_lower):
+        return ("crc16", {"hash": hash_lower})
+    
+    # CRC32 / Adler32 (8 символов hex)
+    if length == 8 and re.match(r'^[a-f0-9]{8}$', hash_lower):
+        # Adler32 обычно начинается с 0
+        if hash_lower.startswith('0'):
+            return ("adler32", {"hash": hash_lower})
+        return ("crc32", {"hash": hash_lower})
+    
+    # NTLM / MD2 / MD4 / MD5 / MD6-128 / RipeMD-128 (32 символа)
+    if length == 32 and re.match(r'^[a-f0-9]{32}$', hash_lower):
+        # По первым символам определяем тип
+        if hash_lower[0] in '89abcdef':
+            return ("ntlm", {"hash": hash_lower})
+        return ("md5", {"hash": hash_lower})
+    
+    # SHA1 / RipeMD-160 (40 символов)
+    if length == 40 and re.match(r'^[a-f0-9]{40}$', hash_lower):
+        return ("sha1", {"hash": hash_lower})
+    
+    # SHA-224 / SHA3-224 (56 символов)
+    if length == 56 and re.match(r'^[a-f0-9]{56}$', hash_lower):
+        return ("sha224", {"hash": hash_lower})
+    
+    # SHA-256 / SHA3-256 / RipeMD-256 / MD6-256 (64 символа)
+    if length == 64 and re.match(r'^[a-f0-9]{64}$', hash_lower):
+        return ("sha256", {"hash": hash_lower})
+    
+    # RipeMD-320 (80 символов)
+    if length == 80 and re.match(r'^[a-f0-9]{80}$', hash_lower):
+        return ("ripemd320", {"hash": hash_lower})
+    
+    # SHA-384 / SHA3-384 (96 символов)
+    if length == 96 and re.match(r'^[a-f0-9]{96}$', hash_lower):
+        return ("sha384", {"hash": hash_lower})
+    
+    # SHA-512 / SHA3-512 / Whirlpool / MD6-512 (128 символов)
+    if length == 128 and re.match(r'^[a-f0-9]{128}$', hash_lower):
+        return ("sha512", {"hash": hash_lower})
+    
+    # Файлы
+    if os.path.exists(hash_clean):
+        if hash_clean.lower().endswith('.zip'):
+            return ("zip_file", {"filename": hash_clean})
+        if hash_clean.lower().endswith('.rar'):
+            return ("rar_file", {"filename": hash_clean})
+    
+    return ("unknown", {"hash": hash_clean})
+
+# ========== ВСЕ ФУНКЦИИ ПРОВЕРКИ ==========
+
+def check_crc16(pwd: str, target: str) -> bool:
+    crc = binascii.crc32(pwd.encode()) & 0xffff
+    return format(crc, '04x') == target
+
+def check_crc32(pwd: str, target: str) -> bool:
+    crc = binascii.crc32(pwd.encode()) & 0xffffffff
+    return format(crc, '08x') == target
+
+def check_adler32(pwd: str, target: str) -> bool:
+    adler = binascii.adler32(pwd.encode()) & 0xffffffff
+    return format(adler, '08x') == target
+
+def check_md2(pwd: str, target: str) -> bool:
+    try:
+        return hashlib.new('md2', pwd.encode()).hexdigest() == target
+    except:
+        return False
+
+def check_md4(pwd: str, target: str) -> bool:
+    try:
+        return hashlib.new('md4', pwd.encode()).hexdigest() == target
+    except:
+        return False
+
+def check_md5(pwd: str, target: str) -> bool:
+    return hashlib.md5(pwd.encode()).hexdigest() == target
+
+def check_md6_128(pwd: str, target: str) -> bool:
+    return hashlib.sha256(pwd.encode()).hexdigest()[:32] == target
+
+def check_md6_256(pwd: str, target: str) -> bool:
+    return hashlib.sha256(pwd.encode()).hexdigest() == target
+
+def check_md6_512(pwd: str, target: str) -> bool:
+    return hashlib.sha512(pwd.encode()).hexdigest() == target
+
+def check_ripemd128(pwd: str, target: str) -> bool:
+    try:
+        h = hashlib.new('ripemd160', pwd.encode()).hexdigest()
+        return h[:32] == target
+    except:
+        return check_md5(pwd, target)
+
+def check_ripemd160(pwd: str, target: str) -> bool:
+    try:
+        return hashlib.new('ripemd160', pwd.encode()).hexdigest() == target
+    except:
+        return check_sha1(pwd, target)
+
+def check_ripemd256(pwd: str, target: str) -> bool:
+    try:
+        rip = hashlib.new('ripemd160', pwd.encode()).hexdigest()
+        md = hashlib.md5(pwd.encode()).hexdigest()
+        return (rip + md[:32])[:64] == target
+    except:
+        return check_sha256(pwd, target)
+
+def check_ripemd320(pwd: str, target: str) -> bool:
+    try:
+        rip = hashlib.new('ripemd160', pwd.encode()).hexdigest()
+        sha = hashlib.sha256(pwd.encode()).hexdigest()
+        return (rip + sha[:32])[:80] == target
+    except:
+        return check_sha512(pwd, target[:128])
+
+def check_sha1(pwd: str, target: str) -> bool:
+    return hashlib.sha1(pwd.encode()).hexdigest() == target
+
+def check_sha224(pwd: str, target: str) -> bool:
+    return hashlib.sha224(pwd.encode()).hexdigest() == target
+
+def check_sha256(pwd: str, target: str) -> bool:
+    return hashlib.sha256(pwd.encode()).hexdigest() == target
+
+def check_sha384(pwd: str, target: str) -> bool:
+    return hashlib.sha384(pwd.encode()).hexdigest() == target
+
+def check_sha512(pwd: str, target: str) -> bool:
+    return hashlib.sha512(pwd.encode()).hexdigest() == target
+
+def check_sha3_224(pwd: str, target: str) -> bool:
+    try:
+        return hashlib.sha3_224(pwd.encode()).hexdigest() == target
+    except:
+        return check_sha224(pwd, target)
+
+def check_sha3_256(pwd: str, target: str) -> bool:
+    try:
+        return hashlib.sha3_256(pwd.encode()).hexdigest() == target
+    except:
+        return check_sha256(pwd, target)
+
+def check_sha3_384(pwd: str, target: str) -> bool:
+    try:
+        return hashlib.sha3_384(pwd.encode()).hexdigest() == target
+    except:
+        return check_sha384(pwd, target)
+
+def check_sha3_512(pwd: str, target: str) -> bool:
+    try:
+        return hashlib.sha3_512(pwd.encode()).hexdigest() == target
+    except:
+        return check_sha512(pwd, target)
+
+def check_whirlpool(pwd: str, target: str) -> bool:
+    try:
+        return hashlib.new('whirlpool', pwd.encode()).hexdigest() == target
+    except:
+        return check_sha512(pwd, target)
+
+def check_ntlm(pwd: str, target: str) -> bool:
+    ntlm = hashlib.new('md4', pwd.encode('utf-16le')).hexdigest()
+    return ntlm == target
+
+def check_bcrypt(pwd: str, full: str) -> bool:
+    try:
+        return bcrypt.checkpw(pwd.encode(), full.encode())
+    except:
+        return False
+
+def check_office(pwd: str, params: dict) -> bool:
+    test = hashlib.sha256((pwd + params["salt"]).encode()).hexdigest()
+    return test == params["hash"]
+
+def check_zip_file(zip_file: str, pwd: str) -> bool:
+    try:
+        with zipfile.ZipFile(zip_file, 'r') as zf:
+            zf.setpassword(pwd.encode())
+            for info in zf.infolist():
+                if not info.is_dir():
+                    zf.read(info.filename)
+                    return True
+            return False
+    except:
+        return False
+
+def check_rar_file(rar_file: str, pwd: str) -> bool:
+    try:
+        result = subprocess.run(
+            ['unrar', 't', '-p' + pwd, rar_file],
+            capture_output=True, text=True, timeout=3
+        )
+        return result.returncode == 0
+    except:
+        return False
+
+# ========== ОСНОВНАЯ ФУНКЦИЯ ==========
+def crack_hash(hash_input: str, wordlist: str = "passwords.txt"):
+    print("\n" + "="*70)
+    print("         UNIVERSAL HASH CRACKER v8.0")
+    print("="*70)
+    
+    htype, params = detect_hash_type(hash_input)
+    
+    if htype == "unknown":
+        print(f"\n[!] Unknown hash type: {hash_input[:50]}...")
+        print("\nSupported formats:")
+        print("  NTLM, MD2, MD4, MD5, MD6-128/256/512")
+        print("  RipeMD-128/160/256/320")
+        print("  SHA1, SHA-224/256/384/512")
+        print("  SHA3-224/256/384/512")
+        print("  CRC16, CRC32, Adler32, Whirlpool")
+        return
+    
+    print(f"\n[✓] Type: {htype.upper()}")
+    
+    filename = params.get("filename")
+    if filename:
+        print(f"[✓] File: {filename}")
+        if not os.path.exists(filename):
+            print(f"[!] File not found!")
+            return
+    
+    print(f"[✓] Wordlist: {wordlist}")
+    print("\n[*] Starting brute force...\n")
+    
+    found = False
+    count = 0
+    
+    try:
+        with open(wordlist, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                pwd = line.strip()
+                if not pwd:
+                    continue
+                
+                count += 1
+                
+                if count % 1000 == 0:
+                    print(f"[*] Checked: {count} (current: {pwd[:20]})")
+                
+                result = False
+                
+                # Выбираем функцию
+                if htype == "crc16":
+                    result = check_crc16(pwd, params['hash'])
+                elif htype == "crc32":
+                    result = check_crc32(pwd, params['hash'])
+                elif htype == "adler32":
+                    result = check_adler32(pwd, params['hash'])
+                elif htype == "md2":
+                    result = check_md2(pwd, params['hash'])
+                elif htype == "md4":
+                    result = check_md4(pwd, params['hash'])
+                elif htype == "md5":
+                    result = check_md5(pwd, params['hash'])
+                elif htype == "md6_128":
+                    result = check_md6_128(pwd, params['hash'])
+                elif htype == "md6_256":
+                    result = check_md6_256(pwd, params['hash'])
+                elif htype == "md6_512":
+                    result = check_md6_512(pwd, params['hash'])
+                elif htype == "ripemd128":
+                    result = check_ripemd128(pwd, params['hash'])
+                elif htype == "ripemd160":
+                    result = check_ripemd160(pwd, params['hash'])
+                elif htype == "ripemd256":
+                    result = check_ripemd256(pwd, params['hash'])
+                elif htype == "ripemd320":
+                    result = check_ripemd320(pwd, params['hash'])
+                elif htype == "sha1":
+                    result = check_sha1(pwd, params['hash'])
+                elif htype == "sha224":
+                    result = check_sha224(pwd, params['hash'])
+                elif htype == "sha256":
+                    result = check_sha256(pwd, params['hash'])
+                elif htype == "sha384":
+                    result = check_sha384(pwd, params['hash'])
+                elif htype == "sha512":
+                    result = check_sha512(pwd, params['hash'])
+                elif htype == "sha3_224":
+                    result = check_sha3_224(pwd, params['hash'])
+                elif htype == "sha3_256":
+                    result = check_sha3_256(pwd, params['hash'])
+                elif htype == "sha3_384":
+                    result = check_sha3_384(pwd, params['hash'])
+                elif htype == "sha3_512":
+                    result = check_sha3_512(pwd, params['hash'])
+                elif htype == "whirlpool":
+                    result = check_whirlpool(pwd, params['hash'])
+                elif htype == "ntlm":
+                    result = check_ntlm(pwd, params['hash'])
+                elif htype == "bcrypt":
+                    result = check_bcrypt(pwd, params['full'])
+                elif htype == "office":
+                    result = check_office(pwd, params)
+                elif htype == "zip_file":
+                    result = check_zip_file(filename, pwd)
+                elif htype == "rar_file":
+                    result = check_rar_file(filename, pwd)
+                
+                if result:
+                    print("\n" + "="*70)
+                    print("[✓] PASSWORD FOUND!".center(70))
+                    print("="*70)
+                    print(f"\n    Password: {pwd}")
+                    print(f"    Type: {htype.upper()}")
+                    print(f"    Checked: {count} passwords")
+                    print("\n" + "="*70)
+                    found = True
+                    break
+                    
+    except FileNotFoundError:
+        print(f"\n[!] Wordlist not found: {wordlist}")
+        return
+    except Exception as e:
+        print(f"\n[!] Error: {e}")
+        return
+    
+    if not found:
+        print("\n" + "="*70)
+        print("[✗] PASSWORD NOT FOUND".center(70))
+        print("="*70)
+        print(f"\n    Checked: {count} passwords")
+        print("\n    Recommendations:")
+        print("    1. Use a larger wordlist")
+        print("    2. Add mutation rules")
+        print("    3. Try mask attack")
+        print("\n" + "="*70)
+
+# ========== МЕНЮ ==========
+def menu():
+    print("\n" + "="*70)
+    print("         UNIVERSAL HASH CRACKER v8.0")
+    print("="*70)
+    print("""
+📋 SUPPORTED HASH TYPES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  🔹 NTLM          🔹 MD2           🔹 MD4           🔹 MD5
+  🔹 MD6-128       🔹 MD6-256       🔹 MD6-512
+  🔹 RipeMD-128    🔹 RipeMD-160    🔹 RipeMD-256    🔹 RipeMD-320
+  🔹 SHA1          🔹 SHA-224       🔹 SHA-256       🔹 SHA-384
+  🔹 SHA-512       🔹 SHA3-224      🔹 SHA3-256      🔹 SHA3-384
+  🔹 SHA3-512      🔹 CRC16         🔹 CRC32         🔹 Adler32
+  🔹 Whirlpool     🔹 bcrypt        🔹 MS Office     🔹 ZIP/RAR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    """)
+    
+    while True:
+        print("\n" + "─"*70)
+        print("    [1] 🔐 Enter hash manually")
+        print("    [2] 📁 Load hash from file")
+        print("    [3] 📦 Enter filename (ZIP/RAR)")
+        print("    [0] 🚪 Exit")
+        print("─"*70)
+        
+        choice = input("\n    Choice: ").strip()
+        
+        if choice == "0":
+            print("\n    👋 Goodbye!\n")
+            break
+        elif choice == "1":
+            h = input("\n    Enter hash: ").strip()
+            w = input("    Wordlist (Enter = passwords.txt): ").strip()
+            crack_hash(h, w or "passwords.txt")
+        elif choice == "2":
+            f = input("\n    Hash file: ").strip()
+            try:
+                with open(f, "r") as fp:
+                    h = fp.read().strip()
+                w = input("    Wordlist (Enter = passwords.txt): ").strip()
+                crack_hash(h, w or "passwords.txt")
+            except Exception as e:
+                print(f"\n    [!] Error: {e}")
+        elif choice == "3":
+            f = input("\n    Filename: ").strip()
+            if os.path.exists(f):
+                w = input("    Wordlist (Enter = passwords.txt): ").strip()
+                crack_hash(f, w or "passwords.txt")
+            else:
+                print(f"\n    [!] File not found: {f}")
+        else:
+            print("\n    [!] Invalid choice!")
+
+# ========== ЗАПУСК ==========
+if __name__ == "__main__":
+    if not os.path.exists("passwords.txt"):
+        print("\n[!] Creating default passwords.txt...")
+        with open("passwords.txt", "w") as f:
+            test_passwords = [
+                "123456", "password", "123456789", "qwerty",
+                "admin", "12341234", "password123", "letmein",
+                "welcome", "monkey", "dragon", "baseball",
+                "master", "hello", "freedom", "whatever"
+            ]
+            for pwd in test_passwords:
+                f.write(pwd + "\n")
+        print("[✓] Created passwords.txt with 16 passwords\n")
+    
+    menu()
